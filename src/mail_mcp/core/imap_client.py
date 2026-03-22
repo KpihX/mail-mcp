@@ -379,8 +379,10 @@ class IMAPClient:
     # Attachment download
     # ------------------------------------------------------------------
 
-    def download_attachment(self, uid: int, filename: str, folder: str = "INBOX") -> bytes:
-        """Download the raw bytes of a named attachment from a message.
+    def download_attachment(
+        self, uid: int, filename: str, folder: str = "INBOX"
+    ) -> tuple[bytes, str]:
+        """Download the raw bytes and content type of an attachment.
 
         Raises FileNotFoundError if the UID or filename is not found.
         """
@@ -394,7 +396,12 @@ class IMAPClient:
             fn = _decode_header(part.get_filename() or "")
             if fn == filename:
                 payload = part.get_payload(decode=True)
-                return payload if payload is not None else b""
+                if payload is None:
+                    raise FileNotFoundError(
+                        f"Attachment '{filename}' found but has an unsupported multipart payload."
+                    )
+                content_type = part.get_content_type()
+                return payload, content_type
         raise FileNotFoundError(f"Attachment '{filename}' not found in message UID {uid}")
 
     # ------------------------------------------------------------------

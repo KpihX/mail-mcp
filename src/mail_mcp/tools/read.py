@@ -323,20 +323,41 @@ def download_attachment(
     filename: str,
     save_path: Optional[str] = None,
     folder: str = "INBOX",
+    ingest_base64: bool = False,
     account_id: Optional[str] = None,
 ) -> dict:
-    """Download an attachment from a message to a local file.
+    """Download an attachment from a message.
+
+    By default, it saves to a local file. If `ingest_base64` is True, it returns the data directly.
 
     - `uid`: message UID (from `get_message` → attachments list)
     - `filename`: exact filename as returned by `get_message`
     - `save_path`: absolute path to save to (default: /tmp/mail_attachments/<filename>)
     - `folder`: folder where the message lives
+    - `ingest_base64`: if True, returns a `data_base64` field instead of saving to disk.
 
-    Returns `{"saved_to": "...", "filename": "...", "size_bytes": N}`.
+    Returns:
+        - if `ingest_base64=False`: `{"saved_to": "...", "filename": "...", "size_bytes": N}`
+        - if `ingest_base64=True`: `{"filename": "...", "content_type": "...", "size_bytes": N, "data_base64": "..."}`
     """
     acc = _account(account_id)
-    with IMAPClient(acc) as client:
-        data = client.download_attachment(uid, filename, folder)
+    import base64
+
+    try:
+        with IMAPClient(acc) as client:
+            data, content_type = client.download_attachment(uid, filename, folder)
+    except FileNotFoundError as e:
+        return {"error": str(e)}
+
+    if ingest_base64:
+        b64_data = base64.b64encode(data).decode("utf-8")
+        return {
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": len(data),
+            "data_base64": b64_data,
+            "account": acc.id,
+        }
 
     dest = Path(save_path) if save_path else Path("/tmp/mail_attachments") / filename
     dest.parent.mkdir(parents=True, exist_ok=True)

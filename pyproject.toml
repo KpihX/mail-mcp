@@ -7,7 +7,7 @@ module-name = "mail_mcp"
 
 [project]
 name = "k-mail-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Generic IMAP+SMTP MCP server — intent-first email access for AI agents"
 readme = "README.md"
 license = { text = "MIT" }

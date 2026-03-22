@@ -225,7 +225,7 @@ args = ["-l", "-c", "/home/kpihx/.local/bin/mail-mcp serve"]
 | `trash_messages` | Move to Trash |
 | `delete_messages` | Permanent delete + expunge |
 | `mark_as_spam` | Move to Spam/Junk |
-| `download_attachment` | Download attachment by index |
+| `download_attachment` | Download to file (default) or ingest as Base64 (`ingest_base64=True`) |
 | `set_labels` | Alias for `move_messages` |
 
 ---
