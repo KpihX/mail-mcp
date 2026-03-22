@@ -1,5 +1,21 @@
 # CHANGELOG — mail-mcp
 
+## [0.2.0] — 2026-03-22
+
+- [x] Triple admin surface: CLI (`mail-admin`), HTTP admin routes, Telegram bot
+- [x] `mail-admin` CLI: `status`, `help`, `logs`, `credentials set/unset` (Rich+Typer)
+- [x] HTTP admin routes: `/health`, `/admin/status`, `/admin/help`, `/admin/logs`, `POST /admin/credentials/set`, `POST /admin/credentials/unset`
+- [x] Telegram long-poll bot: in-process daemon thread; commands `/start`, `/help`, `/status`, `/health`, `/urls`, `/logs`, `/credentials_set`, `/credentials_unset`, `/restart`
+- [x] Token: `TELEGRAM_MAIL_HOMELAB_TOKEN` / auth gate: `TELEGRAM_CHAT_IDS`
+- [x] `daemon.py`: PID file lifecycle (`write_pid`, `read_pid`, `clear_pid`, `is_running`)
+- [x] Admin env file (`ADMIN_ENV_PATH`): persistent credential overrides without redeployment — `/data/mail-admin.env` in Docker (volume-mounted), `~/.mcps/mail/mail-admin.env` locally
+- [x] `_load_nonempty_dotenv`: silently ignores blank placeholder lines to avoid clobbering injected secrets
+- [x] `APP_VERSION` from `importlib.metadata` with fallback
+- [x] Streamable-HTTP transport via `mcp.http_app()` — homelab at `mail.kpihx-labs.com:8094`
+- [x] Docker volume `mail_mcp_data:/data` for persistent admin env across restarts
+- [x] GitLab CI: validate (smoke test) + deploy_homelab (tag: homelab, only: master)
+- [x] Dual transport: HTTP homelab + stdio fallback registered in Claude, Codex, Vibe, Gemini, Copilot
+
 ## [0.1.0] — 2026-03-22
 
 - [x] Initial release — generic IMAP+SMTP MCP server
