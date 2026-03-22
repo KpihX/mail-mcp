@@ -58,6 +58,12 @@ class SmtpConfig(BaseModel):
     starttls: bool = True
 
 
+class SignatureConfig(BaseModel):
+    before_logo: str = ""
+    logo_path: str = ""    # relative to package dir (e.g. "assets/signature_logo.png")
+    after_logo: str = ""
+
+
 class AccountConfig(BaseModel):
     id: str
     label: str = ""
@@ -65,10 +71,18 @@ class AccountConfig(BaseModel):
     smtp: SmtpConfig
     username_env: str
     password_env: str
+    email: str = ""              # full address for From header & SMTP envelope (e.g. user@domain.com)
+    display_name: str = ""       # human name shown in From header
+    signature: SignatureConfig = Field(default_factory=SignatureConfig)
     default: bool = False
     # Resolved at runtime — populated after secret resolution
     username: str = Field(default="", exclude=True)
     password: str = Field(default="", exclude=True)
+
+    @property
+    def from_address(self) -> str:
+        """Return the SMTP envelope address: email if set, else username."""
+        return self.email or self.username
 
 
 class McpSettings(BaseModel):

@@ -14,9 +14,21 @@ accounts:
       host: webmail.polytechnique.fr
       port: 587
       starttls: true     # STARTTLS on port 587
-    username_env: X_LOGIN   # resolves to Ivann.kamdem-pouokam
+    username_env: X_LOGIN   # resolves to Ivann.kamdem-pouokam (IMAP/SMTP auth login)
     password_env: X_PASS
+    email: ivann.kamdem-pouokam@polytechnique.edu   # full address for From header & SMTP envelope
+    display_name: "Ivann KAMDEM POUOKAM"
     default: true
+    signature:
+      before_logo: |
+        Ivann KAMDEM
+        EIX X2024
+      logo_path: "assets/signature_logo.png"   # relative to package dir
+      after_logo: |
+        ÉCOLE POLYTECHNIQUE
+        91128 PALAISEAU CEDEX
+        T. +33(0)605957785
+        ivann.kamdem-pouokam@polytechnique.edu
 
 # Global MCP settings
 mcp:
