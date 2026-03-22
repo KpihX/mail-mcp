@@ -350,6 +350,8 @@ def download_attachment(
         return {"error": str(e)}
 
     if ingest_base64:
+        if not data:
+            return {"error": f"Attachment '{filename}' data is empty (Base64 mode)."}
         b64_data = base64.b64encode(data).decode("utf-8")
         return {
             "filename": filename,
@@ -358,6 +360,9 @@ def download_attachment(
             "data_base64": b64_data,
             "account": acc.id,
         }
+
+    if not data:
+        return {"error": f"Attachment '{filename}' data is empty (File save mode)."}
 
     dest = Path(save_path) if save_path else Path("/tmp/mail_attachments") / filename
     dest.parent.mkdir(parents=True, exist_ok=True)
