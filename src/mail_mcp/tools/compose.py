@@ -24,6 +24,7 @@ def send_message(
     body_text: str,
     body_html: str = "",
     cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
     signature: str = "default",
     attachments: Optional[list[str]] = None,
     account_id: Optional[str] = None,
@@ -34,7 +35,8 @@ def send_message(
     - `subject`: email subject line
     - `body_text`: plain-text body (required)
     - `body_html`: optional HTML version
-    - `cc`: optional CC recipients
+    - `cc`: carbon copy recipients (visible in headers)
+    - `bcc`: blind carbon copy (added to SMTP envelope only — recipients never see it)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     - `attachments`: optional list of absolute file paths to attach
 
@@ -48,6 +50,7 @@ def send_message(
         body_text=body_text,
         body_html=body_html,
         cc=cc,
+        bcc=bcc,
         signature=signature,
         attachments=attachments,
     )
@@ -60,6 +63,7 @@ def reply_message(
     body_text: str,
     body_html: str = "",
     reply_all: bool = False,
+    bcc: Optional[list[str]] = None,
     signature: str = "default",
     folder: str = "INBOX",
     account_id: Optional[str] = None,
@@ -68,6 +72,7 @@ def reply_message(
 
     Automatically sets In-Reply-To and References headers.
     Set `reply_all=True` to include all original recipients in CC.
+    - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
@@ -84,6 +89,7 @@ def reply_message(
         body_text=body_text,
         body_html=body_html,
         reply_all=reply_all,
+        bcc=bcc,
         signature=signature,
     )
     return {"sent": True, "message_id": mid, "account": acc.id}
@@ -94,6 +100,8 @@ def forward_message(
     uid: int,
     to: list[str],
     body_text: str = "",
+    cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
     signature: str = "default",
     folder: str = "INBOX",
     account_id: Optional[str] = None,
@@ -102,6 +110,8 @@ def forward_message(
 
     Prepends a standard forward header and the original body.
     `body_text` is prepended above the forwarded content.
+    - `cc`: visible carbon copy
+    - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
@@ -113,7 +123,7 @@ def forward_message(
         return {"error": f"Message UID {uid} not found in {folder}"}
 
     smtp = SMTPClient(acc)
-    mid = smtp.forward(original=original, to=to, body_text=body_text, signature=signature)
+    mid = smtp.forward(original=original, to=to, body_text=body_text, cc=cc, bcc=bcc, signature=signature)
     return {"sent": True, "message_id": mid, "account": acc.id}
 
 
@@ -124,6 +134,7 @@ def save_draft(
     body_text: str,
     body_html: str = "",
     cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
     signature: str = "default",
     attachments: Optional[list[str]] = None,
     drafts_folder: str = "Drafts",
@@ -144,6 +155,7 @@ def save_draft(
         body_text=body_text,
         body_html=body_html,
         cc=cc,
+        bcc=bcc,
         signature=signature,
         attachments=attachments,
     )

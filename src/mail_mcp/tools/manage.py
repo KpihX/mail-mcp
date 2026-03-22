@@ -61,6 +61,7 @@ def mark_messages(
     seen: Optional[bool] = None,
     flagged: Optional[bool] = None,
     answered: Optional[bool] = None,
+    draft: Optional[bool] = None,
     account_id: Optional[str] = None,
 ) -> dict:
     """Add or remove standard IMAP flags on messages.
@@ -77,6 +78,8 @@ def mark_messages(
             client.set_flags(uids, folder, ["\\Flagged"], add=flagged)
         if answered is not None:
             client.set_flags(uids, folder, ["\\Answered"], add=answered)
+        if draft is not None:
+            client.set_flags(uids, folder, ["\\Draft"], add=draft)
 
     return {"modified": len(uids), "folder": folder, "account": acc.id}
 
@@ -175,3 +178,111 @@ def mark_as_spam(
         client.move_messages(uids, src_folder=source_folder, dst_folder=spam_folder)
 
     return {"reported_spam": len(uids), "folder": spam_folder, "account": acc.id}
+
+
+# ---------------------------------------------------------------------------
+# Folder management
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def create_folder(
+    name: str,
+    account_id: Optional[str] = None,
+) -> dict:
+    """Create a new IMAP folder.
+
+    Use '/' as delimiter for sub-folders (e.g. "Work/Project-X").
+    Returns `{"created": true, "name": "..."}`.
+    """
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        client.create_folder(name)
+
+    return {"created": True, "name": name, "account": acc.id}
+
+
+@mcp.tool()
+def delete_folder(
+    name: str,
+    account_id: Optional[str] = None,
+) -> dict:
+    """Delete an IMAP folder.
+
+    WARNING: Some servers require the folder to be empty first.
+    Use `move_messages` or `delete_messages` to clear it beforehand.
+    """
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        client.delete_folder(name)
+
+    return {"deleted": True, "name": name, "account": acc.id}
+
+
+@mcp.tool()
+def rename_folder(
+    old_name: str,
+    new_name: str,
+    account_id: Optional[str] = None,
+) -> dict:
+    """Rename an IMAP folder."""
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        client.rename_folder(old_name, new_name)
+
+    return {"renamed": True, "from": old_name, "to": new_name, "account": acc.id}
+
+
+# ---------------------------------------------------------------------------
+# Label / keyword management
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_labels(
+    folder: str = "INBOX",
+    account_id: Optional[str] = None,
+) -> dict:
+    """List all user-defined keyword labels available on a folder (PERMANENTFLAGS).
+
+    Standard system flags (\\Seen, \\Flagged, \\Answered, \\Draft, \\Deleted)
+    are excluded — only custom/user labels are returned.
+
+    On Zimbra, tags appear here as IMAP keywords.
+    """
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        keywords = client.list_keywords(folder)
+
+    return {"folder": folder, "labels": keywords, "account": acc.id}
+
+
+@mcp.tool()
+def set_labels(
+    uids: list[int],
+    labels: list[str],
+    add: bool = True,
+    folder: str = "INBOX",
+    account_id: Optional[str] = None,
+) -> dict:
+    """Add or remove custom keyword labels on messages.
+
+    `labels` is a list of IMAP keyword strings. These can be:
+    - User-defined strings like "important", "todo", "reviewed"
+    - Zimbra tags as returned by `list_labels`
+
+    Set `add=False` to remove the labels instead of adding them.
+    Returns count of affected messages.
+    """
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        for label in labels:
+            client.set_keyword(uids, folder, label, add=add)
+
+    return {
+        "modified": len(uids),
+        "labels": labels,
+        "action": "added" if add else "removed",
+        "folder": folder,
+        "account": acc.id,
+    }

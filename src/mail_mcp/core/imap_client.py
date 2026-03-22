@@ -199,34 +199,59 @@ class IMAPClient:
     # Search
     # ------------------------------------------------------------------
 
-    def search(self, criteria: SearchCriteria) -> list[int]:
-        """Return a list of UIDs matching the search criteria."""
-        self._c().select_folder(criteria.folder, readonly=True)
-
-        imap_criteria: list[object] = []
-
+    def _build_imap_criteria(self, criteria: SearchCriteria) -> list[object]:
+        """Translate SearchCriteria into an imapclient-compatible criteria list."""
+        c: list[object] = []
         if criteria.unseen_only:
-            imap_criteria.append("UNSEEN")
+            c.append("UNSEEN")
         if criteria.flagged_only:
-            imap_criteria.append("FLAGGED")
+            c.append("FLAGGED")
         if criteria.sender:
-            imap_criteria += ["FROM", criteria.sender]
+            c += ["FROM", criteria.sender]
+        if criteria.subject_filter:
+            c += ["SUBJECT", criteria.subject_filter]
+        if criteria.to_filter:
+            c += ["TO", criteria.to_filter]
+        if criteria.cc_filter:
+            c += ["CC", criteria.cc_filter]
         if criteria.since:
-            imap_criteria += ["SINCE", criteria.since.date()]
+            c += ["SINCE", criteria.since.date()]
         if criteria.before:
-            imap_criteria += ["BEFORE", criteria.before.date()]
+            c += ["BEFORE", criteria.before.date()]
         if criteria.query:
-            imap_criteria += ["OR", ["SUBJECT", criteria.query], ["BODY", criteria.query]]
+            c += ["OR", ["SUBJECT", criteria.query], ["BODY", criteria.query]]
         if criteria.has_attachment:
-            imap_criteria += ["HEADER", "Content-Type", "multipart"]
+            c += ["HEADER", "Content-Type", "multipart"]
+        if criteria.min_size is not None:
+            c += ["LARGER", criteria.min_size]
+        if criteria.max_size is not None:
+            c += ["SMALLER", criteria.max_size]
+        if criteria.keyword:
+            c += ["KEYWORD", criteria.keyword]
+        return c or ["ALL"]
 
-        if not imap_criteria:
-            imap_criteria = ["ALL"]
+    def search(self, criteria: SearchCriteria) -> list[int]:
+        """Return a list of UIDs matching the search criteria.
 
-        uids = self._c().search(imap_criteria, "UTF-8")
-        # Return newest first, limited
-        uids = sorted(uids, reverse=True)
-        return uids[: criteria.limit]
+        If criteria.folders is set, searches each folder and aggregates (de-dup by UID is
+        meaningless across folders, so UIDs are returned as-is from each folder merged).
+        Client-side regex filters (sender_pattern, subject_pattern, body_pattern) are applied
+        by the caller after fetching summaries/messages.
+        """
+        target_folders = criteria.folders or [criteria.folder]
+        imap_criteria = self._build_imap_criteria(criteria)
+
+        all_uids: list[int] = []
+        for folder in target_folders:
+            try:
+                self._c().select_folder(folder, readonly=True)
+                uids = self._c().search(imap_criteria, "UTF-8")
+                all_uids.extend(uids)
+            except Exception:
+                continue  # skip inaccessible folders silently
+
+        all_uids = sorted(set(all_uids), reverse=True)
+        return all_uids[: criteria.limit]
 
     # ------------------------------------------------------------------
     # Fetch
@@ -359,5 +384,88 @@ class IMAPClient:
     def append_message(self, folder: str, raw_message: bytes, flags: list[str] | None = None) -> int | None:
         """Append a raw RFC822 message to a folder (e.g. Drafts/Sent)."""
         result = self._c().append(folder, raw_message, flags or [], None)
-        # Some servers return the UID of the appended message
         return result if isinstance(result, int) else None
+
+    # ------------------------------------------------------------------
+    # Attachment download
+    # ------------------------------------------------------------------
+
+    def download_attachment(self, uid: int, filename: str, folder: str = "INBOX") -> bytes:
+        """Download the raw bytes of a named attachment from a message.
+
+        Raises FileNotFoundError if the UID or filename is not found.
+        """
+        self._c().select_folder(folder, readonly=True)
+        data = self._c().fetch([uid], ["RFC822"])
+        if uid not in data:
+            raise FileNotFoundError(f"Message UID {uid} not found in {folder}")
+        raw = data[uid][b"RFC822"]
+        msg = email.message_from_bytes(raw)
+        for part in msg.walk():
+            fn = _decode_header(part.get_filename() or "")
+            if fn == filename:
+                payload = part.get_payload(decode=True)
+                return payload if payload is not None else b""
+        raise FileNotFoundError(f"Attachment '{filename}' not found in message UID {uid}")
+
+    # ------------------------------------------------------------------
+    # Folder management
+    # ------------------------------------------------------------------
+
+    def create_folder(self, name: str) -> None:
+        """Create a new IMAP folder."""
+        self._c().create_folder(name)
+
+    def delete_folder(self, name: str) -> None:
+        """Delete an IMAP folder (must be empty on some servers)."""
+        self._c().delete_folder(name)
+
+    def rename_folder(self, old_name: str, new_name: str) -> None:
+        """Rename an IMAP folder."""
+        self._c().rename_folder(old_name, new_name)
+
+    # ------------------------------------------------------------------
+    # Keyword / label management
+    # ------------------------------------------------------------------
+
+    def set_keyword(self, uids: list[int], folder: str, keyword: str, add: bool = True) -> None:
+        """Add or remove a custom IMAP keyword (user-defined label/tag) on messages."""
+        self._c().select_folder(folder)
+        if add:
+            self._c().add_flags(uids, [keyword])
+        else:
+            self._c().remove_flags(uids, [keyword])
+
+    def list_keywords(self, folder: str = "INBOX") -> list[str]:
+        """Return all user-defined keywords available on this folder (from PERMANENTFLAGS).
+
+        Standard system flags (\\Seen, \\Flagged, etc.) are excluded.
+        """
+        resp = self._c().select_folder(folder, readonly=True)
+        raw_flags = resp.get(b"PERMANENTFLAGS", [])
+        standard = {"\\Seen", "\\Answered", "\\Flagged", "\\Deleted", "\\Draft", "\\*"}
+        result = []
+        for f in raw_flags:
+            s = f.decode() if isinstance(f, bytes) else str(f)
+            if s not in standard:
+                result.append(s)
+        return result
+
+    def fetch_messages_for_pattern(self, uids: list[int], folder: str) -> list[tuple[int, str, str, str]]:
+        """Fetch (uid, from_str, subject, body_text) for client-side regex filtering.
+
+        Fetches full RFC822 — use only when body_pattern is set.
+        """
+        if not uids:
+            return []
+        self._c().select_folder(folder, readonly=True)
+        data = self._c().fetch(uids, ["RFC822"])
+        results = []
+        for uid, msg_data in data.items():
+            raw = msg_data.get(b"RFC822", b"")
+            msg = email.message_from_bytes(raw)
+            from_str = _decode_header(msg.get("From", ""))
+            subject = _decode_header(msg.get("Subject", ""))
+            plain, _ = _extract_text(msg)
+            results.append((uid, from_str, subject, plain))
+        return results

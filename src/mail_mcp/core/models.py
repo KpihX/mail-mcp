@@ -87,12 +87,22 @@ class Folder(BaseModel):
 
 class SearchCriteria(BaseModel):
     folder: str = "INBOX"
-    query: Optional[str] = None       # text search in subject+body
-    sender: Optional[str] = None
+    folders: Optional[list[str]] = None        # multi-folder search (overrides folder)
+    query: Optional[str] = None                # IMAP OR SUBJECT+BODY text search
+    sender: Optional[str] = None               # IMAP FROM substring
+    subject_filter: Optional[str] = None       # IMAP SUBJECT substring
+    to_filter: Optional[str] = None            # IMAP TO substring
+    cc_filter: Optional[str] = None            # IMAP CC substring
     since: Optional[datetime] = None
     before: Optional[datetime] = None
     unseen_only: bool = False
     flagged_only: bool = False
     has_attachment: bool = False
+    min_size: Optional[int] = None             # IMAP LARGER (bytes)
+    max_size: Optional[int] = None             # IMAP SMALLER (bytes)
+    keyword: Optional[str] = None              # IMAP KEYWORD (custom flag/label)
+    sender_pattern: Optional[str] = None       # client-side regex on From address
+    subject_pattern: Optional[str] = None      # client-side regex on Subject
+    body_pattern: Optional[str] = None         # client-side regex on body (expensive)
     limit: int = 20
     account_id: Optional[str] = None

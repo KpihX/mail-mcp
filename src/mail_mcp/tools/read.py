@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastmcp import FastMCP
@@ -186,44 +188,97 @@ def get_message(
 def search_messages(
     query: Optional[str] = None,
     sender: Optional[str] = None,
+    sender_pattern: Optional[str] = None,
+    subject_filter: Optional[str] = None,
+    subject_pattern: Optional[str] = None,
+    to_filter: Optional[str] = None,
+    cc_filter: Optional[str] = None,
+    body_pattern: Optional[str] = None,
+    keyword: Optional[str] = None,
     folder: str = "INBOX",
+    folders: Optional[list[str]] = None,
     since: Optional[str] = None,
     before: Optional[str] = None,
     unseen_only: bool = False,
     flagged_only: bool = False,
     has_attachment: bool = False,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
     limit: int = 20,
     account_id: Optional[str] = None,
 ) -> list[dict]:
-    """Search messages with flexible filters.
+    """Search messages with flexible IMAP + client-side filters.
 
-    - `query`: text match against subject and body
-    - `sender`: filter by sender email or name
-    - `since` / `before`: ISO date strings like "2024-03-01"
-    - `folder`: defaults to INBOX
+    **IMAP-level (fast, server-side):**
+    - `query`: text match in subject OR body
+    - `sender`: FROM substring (e.g. "@gmail.com")
+    - `subject_filter`: SUBJECT substring
+    - `to_filter`: TO field substring
+    - `cc_filter`: CC field substring
+    - `keyword`: custom IMAP keyword/label (e.g. "important", "\\\\Flagged")
+    - `since` / `before`: ISO date "2024-03-01"
+    - `unseen_only`, `flagged_only`, `has_attachment`
+    - `min_size` / `max_size`: size in bytes
+    - `folder`: default INBOX | `folders`: list for multi-folder search
 
-    Returns summaries — use `get_message` to read a full message.
+    **Client-side regex (applied after IMAP, on fetched summaries):**
+    - `sender_pattern`: regex on full From address (e.g. ".*@polytechnique\\\\.edu")
+    - `subject_pattern`: regex on Subject line
+    - `body_pattern`: regex on body text — **expensive**, fetches full messages
+
+    Returns summaries — use `get_message` for full body.
     """
     acc = _account(account_id)
 
     since_dt = datetime.fromisoformat(since) if since else None
     before_dt = datetime.fromisoformat(before) if before else None
 
+    # Expand limit to allow client-side regex to trim down after filtering
+    fetch_limit = limit * 5 if (sender_pattern or subject_pattern or body_pattern) else limit
+
     criteria = SearchCriteria(
         folder=folder,
+        folders=folders,
         query=query,
         sender=sender,
+        subject_filter=subject_filter,
+        to_filter=to_filter,
+        cc_filter=cc_filter,
         since=since_dt,
         before=before_dt,
         unseen_only=unseen_only,
         flagged_only=flagged_only,
         has_attachment=has_attachment,
-        limit=limit,
+        min_size=min_size,
+        max_size=max_size,
+        keyword=keyword,
+        limit=fetch_limit,
         account_id=acc.id,
     )
+
     with IMAPClient(acc) as client:
         uids = client.search(criteria)
-        summaries = client.fetch_summaries(uids, folder)
+        target_folder = (folders or [folder])[0]
+        summaries = client.fetch_summaries(uids, target_folder)
+
+        # Client-side regex on sender / subject (no extra fetch needed)
+        if sender_pattern:
+            rx = re.compile(sender_pattern, re.IGNORECASE)
+            summaries = [m for m in summaries if m.sender and rx.search(m.sender.email + " " + m.sender.name)]
+        if subject_pattern:
+            rx = re.compile(subject_pattern, re.IGNORECASE)
+            summaries = [m for m in summaries if rx.search(m.subject)]
+
+        # Client-side regex on body — requires full fetch (expensive)
+        if body_pattern:
+            rx = re.compile(body_pattern, re.IGNORECASE | re.DOTALL)
+            remaining_uids = [m.uid for m in summaries]
+            full_msgs = client.fetch_messages_for_pattern(remaining_uids, target_folder)
+            matching_uids = {uid for uid, _f, _s, body in full_msgs if rx.search(body)}
+            summaries = [m for m in summaries if m.uid in matching_uids]
+
+    # Apply final limit after regex filtering
+    summaries = summaries[:limit]
 
     return [
         {
@@ -232,10 +287,44 @@ def search_messages(
             "from": m.sender.email if m.sender else "",
             "date": m.date.isoformat() if m.date else "",
             "flags": m.flags,
+            "has_attachments": m.has_attachments,
             "folder": m.folder,
         }
         for m in summaries
     ]
+
+
+@mcp.tool()
+def download_attachment(
+    uid: int,
+    filename: str,
+    save_path: Optional[str] = None,
+    folder: str = "INBOX",
+    account_id: Optional[str] = None,
+) -> dict:
+    """Download an attachment from a message to a local file.
+
+    - `uid`: message UID (from `get_message` → attachments list)
+    - `filename`: exact filename as returned by `get_message`
+    - `save_path`: absolute path to save to (default: /tmp/mail_attachments/<filename>)
+    - `folder`: folder where the message lives
+
+    Returns `{"saved_to": "...", "filename": "...", "size_bytes": N}`.
+    """
+    acc = _account(account_id)
+    with IMAPClient(acc) as client:
+        data = client.download_attachment(uid, filename, folder)
+
+    dest = Path(save_path) if save_path else Path("/tmp/mail_attachments") / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+
+    return {
+        "saved_to": str(dest),
+        "filename": filename,
+        "size_bytes": len(data),
+        "account": acc.id,
+    }
 
 
 @mcp.tool()

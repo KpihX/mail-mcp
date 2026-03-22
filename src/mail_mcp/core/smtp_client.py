@@ -147,6 +147,7 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         cc: list[str] | None = None,
+        bcc: list[str] | None = None,
         in_reply_to: str = "",
         references: list[str] | None = None,
         message_id: str = "",
@@ -205,7 +206,7 @@ class SMTPClient:
                 part.add_header("Content-Disposition", "attachment", filename=p.name)
                 root.attach(part)
 
-        # Headers on root
+        # Headers on root (BCC is intentionally NOT added to headers — SMTP envelope only)
         root["From"] = formataddr((self.account.display_name, self.account.from_address))
         root["To"] = ", ".join(to)
         if cc:
@@ -231,6 +232,7 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         cc: list[str] | None = None,
+        bcc: list[str] | None = None,
         signature: str = "default",
         attachments: list[str] | None = None,
     ) -> str:
@@ -238,14 +240,16 @@ class SMTPClient:
 
         signature: "default" → configured sig with logo | "" → none | "text" → custom plain text
         attachments: list of absolute file paths to attach
+        bcc: blind carbon copy — added to SMTP envelope only, never in headers
         """
         msg = self._build_message(
-            to, subject, body_text, body_html, cc,
+            to, subject, body_text, body_html, cc, bcc,
             signature=signature, attachments=attachments,
         )
         mid = msg["Message-ID"]
+        all_rcpt = to + (cc or []) + (bcc or [])
         with self._connect() as server:
-            server.sendmail(self.account.from_address, to + (cc or []), msg.as_bytes())
+            server.sendmail(self.account.from_address, all_rcpt, msg.as_bytes())
         return mid
 
     def reply(
@@ -254,6 +258,7 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         reply_all: bool = False,
+        bcc: list[str] | None = None,
         signature: str = "default",
     ) -> str:
         """Reply to an existing message.
@@ -281,13 +286,15 @@ class SMTPClient:
             body_text=body_text,
             body_html=body_html,
             cc=cc_list or None,
+            bcc=bcc,
             in_reply_to=original.message_id,
             references=refs,
             signature=signature,
         )
         mid = msg["Message-ID"]
+        all_rcpt = to_list + cc_list + (bcc or [])
         with self._connect() as server:
-            server.sendmail(self.account.from_address, to_list + cc_list, msg.as_bytes())
+            server.sendmail(self.account.from_address, all_rcpt, msg.as_bytes())
         return mid
 
     def forward(
@@ -295,6 +302,8 @@ class SMTPClient:
         original: Message,
         to: list[str],
         body_text: str = "",
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
         signature: str = "default",
     ) -> str:
         """Forward a message. signature: "default" | "" | "custom text"."""
@@ -312,10 +321,11 @@ class SMTPClient:
         )
         full_body = (body_text + prefix + original.body_text).strip()
 
-        msg = self._build_message(to=to, subject=subject, body_text=full_body)
+        msg = self._build_message(to=to, subject=subject, body_text=full_body, cc=cc, bcc=bcc, signature=signature)
         mid = msg["Message-ID"]
+        all_rcpt = to + (cc or []) + (bcc or [])
         with self._connect() as server:
-            server.sendmail(self.account.from_address, to, msg.as_bytes())
+            server.sendmail(self.account.from_address, all_rcpt, msg.as_bytes())
         return mid
 
     def build_draft_bytes(
@@ -325,12 +335,13 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         cc: list[str] | None = None,
+        bcc: list[str] | None = None,
         signature: str = "default",
         attachments: list[str] | None = None,
     ) -> tuple[bytes, str]:
         """Build a draft as raw bytes for IMAP APPEND. Returns (bytes, message_id)."""
         msg = self._build_message(
-            to, subject, body_text, body_html, cc,
+            to, subject, body_text, body_html, cc, bcc,
             signature=signature, attachments=attachments,
         )
         return msg.as_bytes(), msg["Message-ID"]
