@@ -1,0 +1,39 @@
+name: mail-mcp
+
+services:
+  mail-mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: mail-mcp
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    networks:
+      - proxy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8094/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mail-mcp-private.rule=Host(`mail.kpihx-labs.com`)"
+      - "traefik.http.routers.mail-mcp-private.entrypoints=websecure"
+      - "traefik.http.routers.mail-mcp-private.tls=true"
+      - "traefik.http.routers.mail-mcp-private.tls.certresolver=myresolver"
+      - "traefik.http.routers.mail-mcp-private.middlewares=mail-mcp-headers"
+      - "traefik.http.routers.mail-mcp-fallback.rule=Host(`mail.homelab`)"
+      - "traefik.http.routers.mail-mcp-fallback.entrypoints=websecure"
+      - "traefik.http.routers.mail-mcp-fallback.tls=true"
+      - "traefik.http.routers.mail-mcp-fallback.middlewares=mail-mcp-headers"
+      - "traefik.http.services.mail-mcp.loadbalancer.server.port=8094"
+      - "traefik.http.middlewares.mail-mcp-headers.headers.browserxssfilter=true"
+      - "traefik.http.middlewares.mail-mcp-headers.headers.contenttypenosniff=true"
+      - "traefik.http.middlewares.mail-mcp-headers.headers.framedeny=true"
+
+networks:
+  proxy:
+    external: true

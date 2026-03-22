@@ -19,15 +19,23 @@ mcp = FastMCP(
     ),
 )
 
-mcp.mount(guide_mcp, prefix="")
-mcp.mount(read_mcp, prefix="")
-mcp.mount(compose_mcp, prefix="")
-mcp.mount(manage_mcp, prefix="")
+mcp.mount(guide_mcp, namespace=None)
+mcp.mount(read_mcp, namespace=None)
+mcp.mount(compose_mcp, namespace=None)
+mcp.mount(manage_mcp, namespace=None)
 
 
 def serve() -> None:
-    """Entry point for `mail-mcp serve` (used by MCP host configs)."""
+    """Entry point for `mail-mcp serve` — stdio transport."""
     mcp.run(transport="stdio")
+
+
+def serve_http() -> None:
+    """Entry point for `mail-mcp serve-http` — streamable HTTP transport."""
+    import uvicorn
+    from mail_mcp.config import HTTP_HOST, HTTP_PORT
+    from mail_mcp.http_app import app as http_app
+    uvicorn.run(http_app, host=HTTP_HOST, port=HTTP_PORT, reload=False)
 
 
 if __name__ == "__main__":

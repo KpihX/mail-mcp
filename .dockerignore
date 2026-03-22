@@ -1,0 +1,33 @@
+# Agent artifacts — private, never in image
+.agent/
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+COPILOT.md
+VIBE.md
+
+# Dev environments
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Secrets
+.env
+deploy/.env
+*.key
+*.pem
+
+# Git history
+.git/
+.gitignore
+
+# Tests (not needed at runtime)
+tests/
+
+# Editor artifacts
+.idea/
+.vscode/

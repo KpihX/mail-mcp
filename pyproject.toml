@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "mail-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generic IMAP+SMTP MCP server — intent-first email access for AI agents"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,6 +21,7 @@ dependencies = [
     "pyyaml>=6.0",
     "html2text>=2024.2",
     "python-dotenv>=1.0",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]

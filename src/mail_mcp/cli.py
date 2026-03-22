@@ -26,6 +26,14 @@ def serve() -> None:
     _serve()
 
 
+@app.command("serve-http")
+def serve_http() -> None:
+    """Start the MCP server in streamable HTTP mode (for homelab deployment)."""
+    from mail_mcp.server import serve_http as _serve_http
+    console.print("[green]mail-mcp HTTP server starting...[/green]")
+    _serve_http()
+
+
 @app.command()
 def status(account_id: Optional[str] = typer.Option(None, "--account", "-a", help="Account ID")) -> None:
     """Show connection status and inbox stats."""

@@ -231,27 +231,16 @@ class IMAPClient:
         return c or ["ALL"]
 
     def search(self, criteria: SearchCriteria) -> list[int]:
-        """Return a list of UIDs matching the search criteria.
+        """Return a list of UIDs matching the search criteria (single folder).
 
-        If criteria.folders is set, searches each folder and aggregates (de-dup by UID is
-        meaningless across folders, so UIDs are returned as-is from each folder merged).
-        Client-side regex filters (sender_pattern, subject_pattern, body_pattern) are applied
-        by the caller after fetching summaries/messages.
+        For multi-folder search, call this once per folder from the tool layer — UIDs are
+        folder-scoped and cannot be safely merged into a flat list across folders.
         """
-        target_folders = criteria.folders or [criteria.folder]
+        self._c().select_folder(criteria.folder, readonly=True)
         imap_criteria = self._build_imap_criteria(criteria)
-
-        all_uids: list[int] = []
-        for folder in target_folders:
-            try:
-                self._c().select_folder(folder, readonly=True)
-                uids = self._c().search(imap_criteria, "UTF-8")
-                all_uids.extend(uids)
-            except Exception:
-                continue  # skip inaccessible folders silently
-
-        all_uids = sorted(set(all_uids), reverse=True)
-        return all_uids[: criteria.limit]
+        uids = self._c().search(imap_criteria, "UTF-8")
+        uids = sorted(uids, reverse=True)
+        return uids[: criteria.limit]
 
     # ------------------------------------------------------------------
     # Fetch

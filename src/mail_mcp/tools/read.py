@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -257,9 +258,26 @@ def search_messages(
     )
 
     with IMAPClient(acc) as client:
-        uids = client.search(criteria)
-        target_folder = (folders or [folder])[0]
-        summaries = client.fetch_summaries(uids, target_folder)
+        # Search + fetch per folder — UIDs are folder-scoped, must not be merged across folders
+        search_folders = folders or [folder]
+        all_summaries = []
+        for f in search_folders:
+            per_criteria = SearchCriteria(
+                folder=f,
+                query=query, sender=sender, subject_filter=subject_filter,
+                to_filter=to_filter, cc_filter=cc_filter,
+                since=since_dt, before=before_dt,
+                unseen_only=unseen_only, flagged_only=flagged_only,
+                has_attachment=has_attachment,
+                min_size=min_size, max_size=max_size, keyword=keyword,
+                limit=fetch_limit, account_id=acc.id,
+            )
+            uids = client.search(per_criteria)
+            all_summaries.extend(client.fetch_summaries(uids, f))
+
+        # Sort by date descending (merge across folders)
+        all_summaries.sort(key=lambda m: m.date or datetime.min, reverse=True)
+        summaries = all_summaries
 
         # Client-side regex on sender / subject (no extra fetch needed)
         if sender_pattern:
@@ -269,13 +287,18 @@ def search_messages(
             rx = re.compile(subject_pattern, re.IGNORECASE)
             summaries = [m for m in summaries if rx.search(m.subject)]
 
-        # Client-side regex on body — requires full fetch (expensive)
+        # Client-side regex on body — requires full fetch, grouped per folder
         if body_pattern:
             rx = re.compile(body_pattern, re.IGNORECASE | re.DOTALL)
-            remaining_uids = [m.uid for m in summaries]
-            full_msgs = client.fetch_messages_for_pattern(remaining_uids, target_folder)
-            matching_uids = {uid for uid, _f, _s, body in full_msgs if rx.search(body)}
-            summaries = [m for m in summaries if m.uid in matching_uids]
+            folder_to_uids: dict[str, list[int]] = defaultdict(list)
+            for m in summaries:
+                folder_to_uids[m.folder].append(m.uid)
+            matching: set[tuple[str, int]] = set()
+            for f, uids in folder_to_uids.items():
+                for uid, _from, _subj, body in client.fetch_messages_for_pattern(uids, f):
+                    if rx.search(body):
+                        matching.add((f, uid))
+            summaries = [m for m in summaries if (m.folder, m.uid) in matching]
 
     # Apply final limit after regex filtering
     summaries = summaries[:limit]

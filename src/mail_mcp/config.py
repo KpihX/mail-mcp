@@ -205,6 +205,17 @@ class MailMcpConfig:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# HTTP transport constants (for serve-http mode)
+# ---------------------------------------------------------------------------
+
+HTTP_HOST: str = os.environ.get("MAIL_MCP_HTTP_HOST", "0.0.0.0")
+HTTP_PORT: int = int(os.environ.get("MAIL_MCP_HTTP_PORT", "8094"))
+HTTP_MCP_PATH: str = os.environ.get("MAIL_MCP_HTTP_MCP_PATH", "/mcp")
+HTTP_PUBLIC_BASE_URL: str = os.environ.get("MAIL_MCP_PUBLIC_BASE_URL", "https://mail.kpihx-labs.com")
+HTTP_FALLBACK_BASE_URL: str = os.environ.get("MAIL_MCP_FALLBACK_BASE_URL", "https://mail.homelab")
+
+
 @lru_cache(maxsize=1)
 def get_config() -> MailMcpConfig:
     """Return the cached MailMcpConfig singleton."""

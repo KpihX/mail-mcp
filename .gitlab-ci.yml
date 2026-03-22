@@ -1,0 +1,89 @@
+stages:
+  - validate
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+
+validate_project:
+  stage: validate
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  variables:
+    GIT_CLEAN_FLAGS: none
+  script:
+    - |
+      if command -v uv >/dev/null 2>&1; then
+        uv sync --group dev
+        uv run python -m py_compile $(find src -name '*.py' -print)
+        uv run python -c "
+      import anyio, json
+      from mail_mcp.http_app import health
+      response = anyio.run(health, None)
+      assert response.status_code == 200
+      payload = json.loads(response.body)
+      assert payload['product'] == 'mail-mcp'
+      assert payload['transport'] == 'streamable-http'
+      print('mail-mcp HTTP smoke test OK')
+      "
+      elif command -v docker >/dev/null 2>&1; then
+        docker run --rm \
+          -v "$CI_PROJECT_DIR:/work" \
+          -w /work \
+          ghcr.io/astral-sh/uv:python3.12-bookworm-slim \
+          sh -lc '
+            uv sync --group dev &&
+            uv run python -m py_compile $(find src -name '"'"'*.py'"'"' -print) &&
+            uv run python -c "
+      import anyio, json
+      from mail_mcp.http_app import health
+      response = anyio.run(health, None)
+      assert response.status_code == 200
+      payload = json.loads(response.body)
+      assert payload[\"product\"] == \"mail-mcp\"
+      assert payload[\"transport\"] == \"streamable-http\"
+      print(\"mail-mcp HTTP smoke test OK\")
+      "
+          '
+      else
+        echo "Neither uv nor docker is available on this runner."
+        exit 1
+      fi
+
+deploy_homelab:
+  stage: deploy
+  tags:
+    - homelab
+  variables:
+    GIT_CLEAN_FLAGS: none
+  only:
+    - main
+  needs:
+    - validate_project
+  script:
+    - echo "Deploying mail-mcp to the homelab..."
+    - cd deploy
+    - echo "X_LOGIN=$X_LOGIN" > .env
+    - echo "X_PASS=$X_PASS" >> .env
+    - echo "MAIL_MCP_HTTP_HOST=0.0.0.0" >> .env
+    - echo "MAIL_MCP_HTTP_PORT=8094" >> .env
+    - echo "MAIL_MCP_HTTP_MCP_PATH=/mcp" >> .env
+    - echo "MAIL_MCP_PUBLIC_BASE_URL=https://mail.kpihx-labs.com" >> .env
+    - echo "MAIL_MCP_FALLBACK_BASE_URL=https://mail.homelab" >> .env
+    - docker compose -p mail-mcp config -q
+    - docker rm -f mail-mcp || true
+    - docker compose -p mail-mcp up -d --build --remove-orphans
+    - |
+      for attempt in $(seq 1 20); do
+        status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' mail-mcp 2>/dev/null || true)"
+        if [ "$status" = "healthy" ]; then
+          break
+        fi
+        if [ "$status" = "unhealthy" ]; then
+          docker logs --tail 200 mail-mcp
+          exit 1
+        fi
+        sleep 3
+      done
+    - docker inspect --format '{{.State.Health.Status}}' mail-mcp | grep -qx healthy
+    - docker exec mail-mcp curl -fsS http://127.0.0.1:8094/health
+    - docker image prune -f
