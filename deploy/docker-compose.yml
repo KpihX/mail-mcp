@@ -10,6 +10,8 @@ services:
     env_file:
       - path: .env
         required: false
+    volumes:
+      - mail_mcp_data:/data
     networks:
       - proxy
     healthcheck:
@@ -37,3 +39,7 @@ services:
 networks:
   proxy:
     external: true
+
+volumes:
+  mail_mcp_data:
+    name: deploy_mail_mcp_data

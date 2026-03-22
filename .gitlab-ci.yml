@@ -56,7 +56,7 @@ deploy_homelab:
   variables:
     GIT_CLEAN_FLAGS: none
   only:
-    - main
+    - master
   needs:
     - validate_project
   script:
@@ -69,6 +69,7 @@ deploy_homelab:
     - echo "MAIL_MCP_HTTP_MCP_PATH=/mcp" >> .env
     - echo "MAIL_MCP_PUBLIC_BASE_URL=https://mail.kpihx-labs.com" >> .env
     - echo "MAIL_MCP_FALLBACK_BASE_URL=https://mail.homelab" >> .env
+    - echo "MAIL_MCP_ADMIN_ENV_FILE=/data/mail-admin.env" >> .env
     - docker compose -p mail-mcp config -q
     - docker rm -f mail-mcp || true
     - docker compose -p mail-mcp up -d --build --remove-orphans
@@ -86,4 +87,7 @@ deploy_homelab:
       done
     - docker inspect --format '{{.State.Health.Status}}' mail-mcp | grep -qx healthy
     - docker exec mail-mcp curl -fsS http://127.0.0.1:8094/health
+    - docker exec mail-mcp curl -fsS http://127.0.0.1:8094/admin/status
+    - docker exec mail-mcp curl -fsS http://127.0.0.1:8094/admin/help
+    - docker exec mail-mcp mail-admin status
     - docker image prune -f

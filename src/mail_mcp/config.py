@@ -18,11 +18,13 @@ import logging
 import os
 import subprocess
 from functools import lru_cache
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,18 @@ logger = logging.getLogger(__name__)
 _PKG_DIR = Path(__file__).parent
 _CONFIG_YAML = _PKG_DIR / "config.yaml"
 _DOT_ENV = _PKG_DIR / ".env"
+
+# ---------------------------------------------------------------------------
+# Package version
+# ---------------------------------------------------------------------------
+
+def _package_version(default: str = "0.2.0") -> str:
+    try:
+        return pkg_version("mail-mcp")
+    except PackageNotFoundError:
+        return default
+
+APP_VERSION: str = _package_version()
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +217,35 @@ class MailMcpConfig:
 # ---------------------------------------------------------------------------
 # Cached singleton
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Admin env file — persistent credential overrides (Docker: /data/mail-admin.env)
+# ---------------------------------------------------------------------------
+
+# Env var name — allows overriding admin env file path at runtime
+ENV_ADMIN_ENV_FILE: str = "MAIL_MCP_ADMIN_ENV_FILE"
+_DEFAULT_ADMIN_ENV: Path = Path("~/.mcps/mail/mail-admin.env").expanduser()
+ADMIN_ENV_PATH: Path = Path(
+    os.environ.get(ENV_ADMIN_ENV_FILE, str(_DEFAULT_ADMIN_ENV))
+).expanduser()
+
+
+def _load_nonempty_dotenv(path: Path) -> None:
+    """Load .env values into os.environ, silently ignoring blank placeholders.
+
+    This ensures real admin-set credentials override the deployment env without
+    allowing empty placeholder lines to clobber existing inherited secrets.
+    """
+    if not path.exists():
+        return
+    for key, value in dotenv_values(path).items():
+        if value not in (None, ""):
+            os.environ[key] = value
+
+
+# Load admin env at startup — non-empty values take priority over deploy .env
+_load_nonempty_dotenv(ADMIN_ENV_PATH)
 
 
 # ---------------------------------------------------------------------------
