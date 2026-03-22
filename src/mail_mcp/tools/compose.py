@@ -24,6 +24,7 @@ def send_message(
     body_text: str,
     body_html: str = "",
     cc: Optional[list[str]] = None,
+    signature: str = "default",
     account_id: Optional[str] = None,
 ) -> dict:
     """Send a new email message.
@@ -33,6 +34,7 @@ def send_message(
     - `body_text`: plain-text body (required)
     - `body_html`: optional HTML version
     - `cc`: optional CC recipients
+    - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
 
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
@@ -44,6 +46,7 @@ def send_message(
         body_text=body_text,
         body_html=body_html,
         cc=cc,
+        signature=signature,
     )
     return {"sent": True, "message_id": mid, "account": acc.id}
 
@@ -54,6 +57,7 @@ def reply_message(
     body_text: str,
     body_html: str = "",
     reply_all: bool = False,
+    signature: str = "default",
     folder: str = "INBOX",
     account_id: Optional[str] = None,
 ) -> dict:
@@ -61,6 +65,7 @@ def reply_message(
 
     Automatically sets In-Reply-To and References headers.
     Set `reply_all=True` to include all original recipients in CC.
+    - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
     acc = _account(account_id)
@@ -76,6 +81,7 @@ def reply_message(
         body_text=body_text,
         body_html=body_html,
         reply_all=reply_all,
+        signature=signature,
     )
     return {"sent": True, "message_id": mid, "account": acc.id}
 
@@ -85,6 +91,7 @@ def forward_message(
     uid: int,
     to: list[str],
     body_text: str = "",
+    signature: str = "default",
     folder: str = "INBOX",
     account_id: Optional[str] = None,
 ) -> dict:
@@ -92,6 +99,7 @@ def forward_message(
 
     Prepends a standard forward header and the original body.
     `body_text` is prepended above the forwarded content.
+    - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
     acc = _account(account_id)
@@ -102,7 +110,7 @@ def forward_message(
         return {"error": f"Message UID {uid} not found in {folder}"}
 
     smtp = SMTPClient(acc)
-    mid = smtp.forward(original=original, to=to, body_text=body_text)
+    mid = smtp.forward(original=original, to=to, body_text=body_text, signature=signature)
     return {"sent": True, "message_id": mid, "account": acc.id}
 
 
@@ -113,12 +121,14 @@ def save_draft(
     body_text: str,
     body_html: str = "",
     cc: Optional[list[str]] = None,
+    signature: str = "default",
     drafts_folder: str = "Drafts",
     account_id: Optional[str] = None,
 ) -> dict:
     """Save a message as a draft in the IMAP Drafts folder.
 
     The message is built locally and appended via IMAP APPEND — not sent.
+    - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     Returns `{"saved": true, "message_id": "..."}` on success.
     """
     acc = _account(account_id)
@@ -129,6 +139,7 @@ def save_draft(
         body_text=body_text,
         body_html=body_html,
         cc=cc,
+        signature=signature,
     )
     with IMAPClient(acc) as imap:
         imap.append_message(drafts_folder, raw_bytes, flags=["\\Draft"])

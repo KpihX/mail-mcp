@@ -10,6 +10,11 @@ MIME structure when signature logo is present:
     │     ├── text/plain  (body + text signature)
     │     └── text/html   (body + HTML signature with <img src="cid:sig_logo">)
     └── image/png         (logo, Content-ID: sig_logo)
+
+Signature parameter convention (send/reply/forward/build_draft_bytes):
+  "default"   → account's configured signature (logo + text) — factory default
+  ""          → no signature at all
+  "any text"  → custom plain-text signature, appended as "--\\n<text>" (no logo)
 """
 
 from __future__ import annotations
@@ -111,6 +116,30 @@ class SMTPClient:
     # Message builder
     # ------------------------------------------------------------------
 
+    def _resolve_signature(self, signature: str) -> tuple[str, str, bytes | None]:
+        """Return (plain_sig_block, html_sig_block, logo_bytes) for the given signature param.
+
+        "default"  → account's configured SignatureConfig (logo + text)
+        ""         → no signature (all empty)
+        "any text" → custom plain-text only, no logo
+        """
+        if signature == "":
+            return "", "", None
+
+        if signature == "default":
+            sig = self.account.signature
+            return _sig_text(sig), _sig_html(sig), _load_logo(sig)
+
+        # Custom string: plain text only, no logo
+        plain = f"\n\n--\n{signature.strip()}"
+        html = (
+            '<hr style="border:none;border-top:1px solid #ccc;margin:16px 0;">'
+            f'<div style="font-family:Arial,sans-serif;font-size:12px;color:#333;">'
+            f'{signature.strip().replace(chr(10), "<br>")}'
+            f"</div>"
+        )
+        return plain, html, None
+
     def _build_message(
         self,
         to: list[str],
@@ -121,31 +150,24 @@ class SMTPClient:
         in_reply_to: str = "",
         references: list[str] | None = None,
         message_id: str = "",
-        include_signature: bool = True,
+        signature: str = "default",
     ) -> MIMEMultipart:
-        sig = self.account.signature
-        logo_bytes = _load_logo(sig) if include_signature else None
+        plain_sig, html_sig, logo_bytes = self._resolve_signature(signature)
 
         # Build text part (body + plain sig)
-        full_text = body_text
-        if include_signature:
-            full_text += _sig_text(sig)
+        full_text = body_text + plain_sig
 
         # Build HTML part (body + html sig)
-        if body_html or (include_signature and (sig.before_logo or sig.after_logo)):
+        if body_html or html_sig:
             body_html_content = body_html or f"<p>{body_text.replace(chr(10), '<br>')}</p>"
-            full_html = (
-                body_html_content
-                + ('<hr style="border:none;border-top:1px solid #ccc;margin:16px 0;">'
-                   + _sig_html(sig) if include_signature else "")
-            )
+            full_html = body_html_content + html_sig
         else:
             full_html = ""
 
         # Determine top-level structure
         # With logo → multipart/related wrapping multipart/alternative
         # Without logo → multipart/alternative directly
-        if logo_bytes and include_signature:
+        if logo_bytes:
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(full_text, "plain", "utf-8"))
             alt.attach(MIMEText(full_html, "html", "utf-8"))
@@ -194,9 +216,13 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         cc: list[str] | None = None,
+        signature: str = "default",
     ) -> str:
-        """Send a new message with auto-injected signature. Returns Message-ID."""
-        msg = self._build_message(to, subject, body_text, body_html, cc)
+        """Send a new message. Returns Message-ID.
+
+        signature: "default" → configured sig with logo | "" → none | "text" → custom plain text
+        """
+        msg = self._build_message(to, subject, body_text, body_html, cc, signature=signature)
         mid = msg["Message-ID"]
         with self._connect() as server:
             server.sendmail(self.account.from_address, to + (cc or []), msg.as_bytes())
@@ -208,8 +234,14 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         reply_all: bool = False,
+        signature: str = "default",
     ) -> str:
-        """Reply to an existing message with auto-injected signature."""
+        """Reply to an existing message.
+
+        signature: "default" → configured sig | "" → none | "text" → custom plain text.
+        Note: replies include the full signature by default (same as a new message).
+        Pass "" to omit it, or a short custom string for a lighter reply signature.
+        """
         subject = original.subject
         if not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
@@ -231,6 +263,7 @@ class SMTPClient:
             cc=cc_list or None,
             in_reply_to=original.message_id,
             references=refs,
+            signature=signature,
         )
         mid = msg["Message-ID"]
         with self._connect() as server:
@@ -242,8 +275,9 @@ class SMTPClient:
         original: Message,
         to: list[str],
         body_text: str = "",
+        signature: str = "default",
     ) -> str:
-        """Forward a message with auto-injected signature."""
+        """Forward a message. signature: "default" | "" | "custom text"."""
         subject = original.subject
         if not subject.lower().startswith("fwd:") and not subject.lower().startswith("fw:"):
             subject = f"Fwd: {subject}"
@@ -271,7 +305,8 @@ class SMTPClient:
         body_text: str,
         body_html: str = "",
         cc: list[str] | None = None,
+        signature: str = "default",
     ) -> tuple[bytes, str]:
         """Build a draft as raw bytes for IMAP APPEND. Returns (bytes, message_id)."""
-        msg = self._build_message(to, subject, body_text, body_html, cc)
+        msg = self._build_message(to, subject, body_text, body_html, cc, signature=signature)
         return msg.as_bytes(), msg["Message-ID"]
