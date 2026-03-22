@@ -249,6 +249,20 @@ _load_nonempty_dotenv(ADMIN_ENV_PATH)
 
 
 # ---------------------------------------------------------------------------
+# Telegram admin constants
+# ---------------------------------------------------------------------------
+
+ENV_TELEGRAM_MAIL_HOMELAB_TOKEN: str = "TELEGRAM_MAIL_HOMELAB_TOKEN"
+ENV_TELEGRAM_CHAT_IDS: str = "TELEGRAM_CHAT_IDS"
+
+TELEGRAM_MAIL_HOMELAB_TOKEN: str | None = os.environ.get(ENV_TELEGRAM_MAIL_HOMELAB_TOKEN)
+_TELEGRAM_CHAT_IDS_RAW: str = os.environ.get(ENV_TELEGRAM_CHAT_IDS, "")
+TELEGRAM_CHAT_IDS: tuple[str, ...] = tuple(
+    cid.strip() for cid in _TELEGRAM_CHAT_IDS_RAW.split(",") if cid.strip()
+)
+
+
+# ---------------------------------------------------------------------------
 # HTTP transport constants (for serve-http mode)
 # ---------------------------------------------------------------------------
 

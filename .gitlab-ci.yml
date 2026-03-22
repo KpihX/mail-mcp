@@ -64,6 +64,8 @@ deploy_homelab:
     - cd deploy
     - echo "X_LOGIN=$X_LOGIN" > .env
     - echo "X_PASS=$X_PASS" >> .env
+    - echo "TELEGRAM_MAIL_HOMELAB_TOKEN=$TELEGRAM_MAIL_HOMELAB_TOKEN" >> .env
+    - echo "TELEGRAM_CHAT_IDS=$TELEGRAM_CHAT_IDS" >> .env
     - echo "MAIL_MCP_HTTP_HOST=0.0.0.0" >> .env
     - echo "MAIL_MCP_HTTP_PORT=8094" >> .env
     - echo "MAIL_MCP_HTTP_MCP_PATH=/mcp" >> .env

@@ -554,6 +554,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
     { name = "html2text" },
+    { name = "httpx" },
     { name = "imapclient" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -580,6 +581,7 @@ dev = [
 requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
     { name = "html2text", specifier = ">=2024.2" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "imapclient", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

@@ -1,15 +1,19 @@
 """HTTP surface for mail-mcp.
 
 Exposes:
-  /health                    — readiness probe (auth presence check)
-  /admin/status              — operator metadata + credential status
-  /admin/help                — full capability map for CLI, HTTP, SSH
+  /health                    — readiness probe (auth presence check per account)
+  /admin/status              — operator metadata, credential status, Telegram runtime
+  /admin/help                — full capability map for CLI, HTTP, Telegram, SSH
   /admin/logs?lines=40       — tail of the admin log file
   /admin/credentials/set     — POST: set IMAP/SMTP credentials for an account
   /admin/credentials/unset   — POST: clear credentials for an account
   /mcp                       — streamable HTTP MCP transport (FastMCP)
 """
 from __future__ import annotations
+
+import os
+import time
+import threading
 
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -22,14 +26,22 @@ from .admin.service import (
     status_summary_text,
     unset_account_credentials,
 )
+from .admin.telegram import (
+    start_telegram_admin,
+    telegram_admin_enabled,
+    telegram_admin_runtime_status,
+)
 from .config import (
     ADMIN_ENV_PATH,
     APP_VERSION,
+    ENV_TELEGRAM_CHAT_IDS,
+    ENV_TELEGRAM_MAIL_HOMELAB_TOKEN,
     HTTP_FALLBACK_BASE_URL,
     HTTP_MCP_PATH,
     HTTP_PORT,
     HTTP_PUBLIC_BASE_URL,
 )
+from . import daemon
 from .server import mcp
 
 
@@ -39,6 +51,8 @@ from .server import mcp
 
 
 def _base_payload() -> dict:
+    pid = daemon.read_pid()
+    running = bool(pid and daemon.is_running(pid))
     return {
         "ok": True,
         "product": "mail-mcp",
@@ -49,11 +63,13 @@ def _base_payload() -> dict:
         "public_base_url": HTTP_PUBLIC_BASE_URL,
         "fallback_base_url": HTTP_FALLBACK_BASE_URL,
         "listen_port": HTTP_PORT,
+        "pid": pid,
+        "running": running,
     }
 
 
 def _auth_probe_payload() -> dict:
-    """Non-secret credential presence check for health/status probes."""
+    """Non-secret credential presence check — safe for health/status probes."""
     return {
         "accounts": [
             {
@@ -88,6 +104,14 @@ async def admin_status(_request) -> JSONResponse:
                 "docker compose exec -T mail-mcp mail-admin status",
                 "docker compose logs --tail=100 mail-mcp",
             ],
+        },
+        "telegram_admin": {
+            "supported": True,
+            "token_env": ENV_TELEGRAM_MAIL_HOMELAB_TOKEN,
+            "allowed_chat_ids_env": ENV_TELEGRAM_CHAT_IDS,
+            "configured": bool(os.environ.get(ENV_TELEGRAM_MAIL_HOMELAB_TOKEN)),
+            "enabled": telegram_admin_enabled(),
+            "runtime": telegram_admin_runtime_status(),
         },
         "auth_probe": _auth_probe_payload(),
         "status_summary": status_summary_text(),
@@ -153,10 +177,25 @@ async def admin_credentials_unset(request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Telegram startup + restart callback
+# ---------------------------------------------------------------------------
+
+
+def _restart_process() -> None:
+    time.sleep(1.0)
+    os._exit(0)
+
+
+def ensure_telegram_admin_started() -> None:
+    start_telegram_admin(_restart_process)
+
+
+# ---------------------------------------------------------------------------
 # App assembly
 # ---------------------------------------------------------------------------
 
 app = mcp.http_app()
+app.add_event_handler("startup", ensure_telegram_admin_started)
 app.router.routes.insert(0, Route("/health", health))
 app.router.routes.insert(1, Route("/admin/status", admin_status))
 app.router.routes.insert(2, Route("/admin/help", admin_help))

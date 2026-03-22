@@ -215,6 +215,16 @@ def admin_help_text() -> str:
         "  - GET /admin/logs?lines=40",
         "  - POST /admin/credentials/set  body: {account_id, login, password}",
         "  - POST /admin/credentials/unset  body: {account_id}",
+        "- Telegram:",
+        "  - /start",
+        "  - /help",
+        "  - /status [account_id]",
+        "  - /health",
+        "  - /urls",
+        "  - /logs [lines]",
+        "  - /credentials_set <account_id> <login> <password>",
+        "  - /credentials_unset <account_id>",
+        "  - /restart",
         "- SSH (inside container):",
         "  - docker compose exec -T mail-mcp mail-admin status",
         "  - docker compose logs --tail=100 mail-mcp",
@@ -239,4 +249,17 @@ def health_summary() -> str:
         f"- fallback: {HTTP_FALLBACK_BASE_URL}",
         f"- mcp: {HTTP_PUBLIC_BASE_URL}{HTTP_MCP_PATH}",
         f"- local port: {HTTP_PORT}",
+    ])
+
+
+def urls_summary() -> str:
+    return "\n".join([
+        "mail-mcp URLs",
+        f"- public: {HTTP_PUBLIC_BASE_URL}",
+        f"- fallback: {HTTP_FALLBACK_BASE_URL}",
+        f"- MCP: {HTTP_PUBLIC_BASE_URL}{HTTP_MCP_PATH}",
+        f"- admin status: {HTTP_PUBLIC_BASE_URL}/admin/status",
+        f"- admin help: {HTTP_PUBLIC_BASE_URL}/admin/help",
+        f"- admin logs: {HTTP_PUBLIC_BASE_URL}/admin/logs?lines=40",
+        f"- health: {HTTP_PUBLIC_BASE_URL}/health",
     ])

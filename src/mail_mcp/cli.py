@@ -2,36 +2,67 @@
 
 from __future__ import annotations
 
+import os
+import signal
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from mail_mcp.config import get_config, get_default_account, get_account
+from mail_mcp.config import HTTP_HOST, HTTP_MCP_PATH, HTTP_PORT, get_config, get_default_account, get_account
 from mail_mcp.core.imap_client import IMAPClient
+from mail_mcp import daemon
 
 app = typer.Typer(
     name="mail-mcp",
-    help="mail-mcp admin CLI — manage accounts, test connections, serve MCP.",
+    help="mail-mcp — IMAP+SMTP MCP server. Bare invocation starts stdio mode.",
     no_args_is_help=True,
 )
-console = Console()
+console = Console(stderr=True)  # ALL CLI output → stderr (stdout = MCP stdio)
 
 
 @app.command()
 def serve() -> None:
     """Start the MCP server (stdio transport)."""
-    from mail_mcp.server import serve as _serve
-    _serve()
+    from mail_mcp.server import mcp
+    pid = os.getpid()
+    daemon.write_pid(pid)
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        daemon.clear_pid()
 
 
 @app.command("serve-http")
 def serve_http() -> None:
     """Start the MCP server in streamable HTTP mode (for homelab deployment)."""
-    from mail_mcp.server import serve_http as _serve_http
-    console.print("[green]mail-mcp HTTP server starting...[/green]")
-    _serve_http()
+    import uvicorn
+    from mail_mcp.http_app import app as http_app, ensure_telegram_admin_started
+
+    pid = os.getpid()
+    daemon.write_pid(pid)
+    console.print(
+        f"[green]mail-mcp HTTP server starting (PID {pid}) on "
+        f"{HTTP_HOST}:{HTTP_PORT}{HTTP_MCP_PATH}...[/green]"
+    )
+    try:
+        ensure_telegram_admin_started()
+        uvicorn.run(http_app, host=HTTP_HOST, port=HTTP_PORT, reload=False)
+    finally:
+        daemon.clear_pid()
+
+
+@app.command()
+def stop() -> None:
+    """Send SIGTERM to the running server via the PID file."""
+    pid = daemon.read_pid()
+    if not pid or not daemon.is_running(pid):
+        console.print("[yellow]Server is not running.[/yellow]")
+        raise typer.Exit(1)
+    os.kill(pid, signal.SIGTERM)
+    daemon.clear_pid()
+    console.print(f"[green]Sent SIGTERM to PID {pid}.[/green]")
 
 
 @app.command()
