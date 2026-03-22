@@ -2,8 +2,11 @@
 requires = ["uv_build"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = "mail_mcp"
+
 [project]
-name = "mail-mcp"
+name = "k-mail-mcp"
 version = "0.2.0"
 description = "Generic IMAP+SMTP MCP server — intent-first email access for AI agents"
 readme = "README.md"
