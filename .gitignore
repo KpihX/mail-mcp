@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Secrets — never committed
+.env
+*.key
+*.pem
+secrets/
+
+# Agent artifacts — private, not for repos
+.agent/
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+COPILOT.md
+VIBE.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Misc
+*.log
+.DS_Store

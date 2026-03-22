@@ -1,0 +1,25 @@
+# mail-mcp configuration
+# Add accounts under the `accounts` key.
+# `env_login` and `env_pass` name the bw-env shell variables that hold credentials.
+# Secrets are never stored here — resolved at runtime via `zsh -l -c`.
+
+accounts:
+  - id: poly
+    label: "Polytechnique (X)"
+    imap:
+      host: webmail.polytechnique.fr
+      port: 993
+      tls: true          # Direct TLS (IMAPS) — no STARTTLS
+    smtp:
+      host: webmail.polytechnique.fr
+      port: 587
+      starttls: true     # STARTTLS on port 587
+    username_env: X_LOGIN   # resolves to Ivann.kamdem-pouokam
+    password_env: X_PASS
+    default: true
+
+# Global MCP settings
+mcp:
+  default_page_size: 20
+  max_attachment_preview_bytes: 4096
+  thread_depth_limit: 50
