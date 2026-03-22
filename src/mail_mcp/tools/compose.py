@@ -25,6 +25,7 @@ def send_message(
     body_html: str = "",
     cc: Optional[list[str]] = None,
     signature: str = "default",
+    attachments: Optional[list[str]] = None,
     account_id: Optional[str] = None,
 ) -> dict:
     """Send a new email message.
@@ -35,6 +36,7 @@ def send_message(
     - `body_html`: optional HTML version
     - `cc`: optional CC recipients
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
+    - `attachments`: optional list of absolute file paths to attach
 
     Returns `{"sent": true, "message_id": "..."}` on success.
     """
@@ -47,6 +49,7 @@ def send_message(
         body_html=body_html,
         cc=cc,
         signature=signature,
+        attachments=attachments,
     )
     return {"sent": True, "message_id": mid, "account": acc.id}
 
@@ -122,6 +125,7 @@ def save_draft(
     body_html: str = "",
     cc: Optional[list[str]] = None,
     signature: str = "default",
+    attachments: Optional[list[str]] = None,
     drafts_folder: str = "Drafts",
     account_id: Optional[str] = None,
 ) -> dict:
@@ -129,6 +133,7 @@ def save_draft(
 
     The message is built locally and appended via IMAP APPEND — not sent.
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
+    - `attachments`: optional list of absolute file paths to attach
     Returns `{"saved": true, "message_id": "..."}` on success.
     """
     acc = _account(account_id)
@@ -140,6 +145,7 @@ def save_draft(
         body_html=body_html,
         cc=cc,
         signature=signature,
+        attachments=attachments,
     )
     with IMAPClient(acc) as imap:
         imap.append_message(drafts_folder, raw_bytes, flags=["\\Draft"])

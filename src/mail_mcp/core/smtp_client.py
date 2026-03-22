@@ -151,6 +151,7 @@ class SMTPClient:
         references: list[str] | None = None,
         message_id: str = "",
         signature: str = "default",
+        attachments: list[str] | None = None,
     ) -> MIMEMultipart:
         plain_sig, html_sig, logo_bytes = self._resolve_signature(signature)
 
@@ -164,31 +165,45 @@ class SMTPClient:
         else:
             full_html = ""
 
-        # Determine top-level structure
-        # With logo → multipart/related wrapping multipart/alternative
-        # Without logo → multipart/alternative directly
+        # --- Build the content part (text/html/logo structure) ---
+        # With logo: multipart/related [multipart/alternative + inline PNG]
+        # Without logo: multipart/alternative [plain + html] or just plain
         if logo_bytes:
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(full_text, "plain", "utf-8"))
             alt.attach(MIMEText(full_html, "html", "utf-8"))
-
-            related = MIMEMultipart("related")
-            related.attach(alt)
-
+            content_part: MIMEMultipart = MIMEMultipart("related")
+            content_part.attach(alt)
             img = MIMEImage(logo_bytes)
             img.add_header("Content-ID", f"<{_SIG_CID}>")
             img.add_header("Content-Disposition", "inline", filename="logo.png")
-            related.attach(img)
-
-            root = MIMEMultipart("mixed")
-            root.attach(related)
+            content_part.attach(img)
         elif full_html:
-            root = MIMEMultipart("alternative")
-            root.attach(MIMEText(full_text, "plain", "utf-8"))
-            root.attach(MIMEText(full_html, "html", "utf-8"))
+            content_part = MIMEMultipart("alternative")
+            content_part.attach(MIMEText(full_text, "plain", "utf-8"))
+            content_part.attach(MIMEText(full_html, "html", "utf-8"))
         else:
-            root = MIMEMultipart("alternative")
-            root.attach(MIMEText(full_text, "plain", "utf-8"))
+            content_part = MIMEMultipart("alternative")
+            content_part.attach(MIMEText(full_text, "plain", "utf-8"))
+
+        # --- Wrap in mixed if logo or file attachments require a container ---
+        if attachments or logo_bytes:
+            root = MIMEMultipart("mixed")
+            root.attach(content_part)
+        else:
+            root = content_part  # already a MIMEMultipart
+
+        # --- Attach files ---
+        if attachments:
+            for filepath in attachments:
+                p = Path(filepath)
+                mime_type, _ = mimetypes.guess_type(str(p))
+                maintype, subtype = (mime_type or "application/octet-stream").split("/", 1)
+                part = MIMEBase(maintype, subtype)
+                part.set_payload(p.read_bytes())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=p.name)
+                root.attach(part)
 
         # Headers on root
         root["From"] = formataddr((self.account.display_name, self.account.from_address))
@@ -217,12 +232,17 @@ class SMTPClient:
         body_html: str = "",
         cc: list[str] | None = None,
         signature: str = "default",
+        attachments: list[str] | None = None,
     ) -> str:
         """Send a new message. Returns Message-ID.
 
         signature: "default" → configured sig with logo | "" → none | "text" → custom plain text
+        attachments: list of absolute file paths to attach
         """
-        msg = self._build_message(to, subject, body_text, body_html, cc, signature=signature)
+        msg = self._build_message(
+            to, subject, body_text, body_html, cc,
+            signature=signature, attachments=attachments,
+        )
         mid = msg["Message-ID"]
         with self._connect() as server:
             server.sendmail(self.account.from_address, to + (cc or []), msg.as_bytes())
@@ -306,7 +326,11 @@ class SMTPClient:
         body_html: str = "",
         cc: list[str] | None = None,
         signature: str = "default",
+        attachments: list[str] | None = None,
     ) -> tuple[bytes, str]:
         """Build a draft as raw bytes for IMAP APPEND. Returns (bytes, message_id)."""
-        msg = self._build_message(to, subject, body_text, body_html, cc, signature=signature)
+        msg = self._build_message(
+            to, subject, body_text, body_html, cc,
+            signature=signature, attachments=attachments,
+        )
         return msg.as_bytes(), msg["Message-ID"]
