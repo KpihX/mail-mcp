@@ -195,7 +195,7 @@ def ensure_telegram_admin_started() -> None:
 # ---------------------------------------------------------------------------
 
 app = mcp.http_app()
-app.add_event_handler("startup", ensure_telegram_admin_started)
+app.router.on_startup.append(ensure_telegram_admin_started)
 app.router.routes.insert(0, Route("/health", health))
 app.router.routes.insert(1, Route("/admin/status", admin_status))
 app.router.routes.insert(2, Route("/admin/help", admin_help))
