@@ -210,9 +210,9 @@ args = ["-l", "-c", "/home/kpihx/.local/bin/mail-mcp serve"]
 | `search_messages` | Flexible search (query, sender, date, flags) |
 | `find_unread` | Unread shortcut |
 | `get_thread` | Full thread by Message-ID |
-| `send_message` | New email |
-| `reply_message` | Reply by UID |
-| `forward_message` | Forward by UID |
+| `send_message` | New email (+ auto copy to `Sent`) |
+| `reply_message` | Reply by UID (+ auto copy to `Sent`) |
+| `forward_message` | Forward by UID (+ auto copy to `Sent`) |
 | `save_draft` | Draft to Drafts folder |
 | `list_folders` | All IMAP folders |
 | `list_labels` | Alias for `list_folders` |

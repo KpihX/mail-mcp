@@ -1,5 +1,11 @@
 # CHANGELOG — mail-mcp
 
+## [0.2.2] — 2026-04-07
+
+- [x] Compose tools now persist a copy in IMAP `Sent` after SMTP send (`send_message`, `reply_message`, `forward_message`)
+- [x] Sent-copy append uses no `\\Draft` flag for sent messages
+- [x] Compose tool responses now include `saved_to_sent` and `sent_folder` fields
+
 ## [0.2.0] — 2026-03-22
 
 - [x] Triple admin surface: CLI (`mail-admin`), HTTP admin routes, Telegram bot

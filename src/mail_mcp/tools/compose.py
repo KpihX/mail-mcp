@@ -12,9 +12,46 @@ from mail_mcp.core.smtp_client import SMTPClient
 
 mcp = FastMCP("mail-compose")
 
+_SENT_CANDIDATES = ["Sent", "Sent Items", "Sent Messages", "[Gmail]/Sent Mail"]
+
 
 def _account(account_id: Optional[str]):
     return get_account(account_id) if account_id else get_default_account()
+
+def _resolve_sent_folder(imap: IMAPClient) -> str:
+    existing = {f.name for f in imap.list_folders()}
+    for name in _SENT_CANDIDATES:
+        if name in existing:
+            return name
+    return _SENT_CANDIDATES[0]
+
+def _save_copy_to_sent(
+    *,
+    acc,
+    smtp: SMTPClient,
+    to: list[str],
+    subject: str,
+    body_text: str,
+    body_html: str = "",
+    cc: Optional[list[str]] = None,
+    bcc: Optional[list[str]] = None,
+    signature: str = "default",
+    attachments: Optional[list[str]] = None,
+) -> tuple[bool, str]:
+    raw_bytes, _ = smtp.build_draft_bytes(
+        to=to,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        cc=cc,
+        bcc=bcc,
+        signature=signature,
+        attachments=attachments,
+    )
+    with IMAPClient(acc) as imap:
+        sent_folder = _resolve_sent_folder(imap)
+        imap.append_message(sent_folder, raw_bytes, flags=[])
+    return True, sent_folder
 
 
 @mcp.tool()
@@ -40,7 +77,7 @@ def send_message(
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     - `attachments`: optional list of absolute file paths to attach
 
-    Returns `{"sent": true, "message_id": "..."}` on success.
+    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
     """
     acc = _account(account_id)
     smtp = SMTPClient(acc)
@@ -54,7 +91,30 @@ def send_message(
         signature=signature,
         attachments=attachments,
     )
-    return {"sent": True, "message_id": mid, "account": acc.id}
+    saved_to_sent = False
+    sent_folder = ""
+    try:
+        saved_to_sent, sent_folder = _save_copy_to_sent(
+            acc=acc,
+            smtp=smtp,
+            to=to,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=cc,
+            bcc=bcc,
+            signature=signature,
+            attachments=attachments,
+        )
+    except Exception:
+        saved_to_sent = False
+    return {
+        "sent": True,
+        "message_id": mid,
+        "account": acc.id,
+        "saved_to_sent": saved_to_sent,
+        "sent_folder": sent_folder,
+    }
 
 
 @mcp.tool()
@@ -74,7 +134,7 @@ def reply_message(
     Set `reply_all=True` to include all original recipients in CC.
     - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
-    Returns `{"sent": true, "message_id": "..."}` on success.
+    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
     """
     acc = _account(account_id)
     with IMAPClient(acc) as imap:
@@ -92,7 +152,38 @@ def reply_message(
         bcc=bcc,
         signature=signature,
     )
-    return {"sent": True, "message_id": mid, "account": acc.id}
+    saved_to_sent = False
+    sent_folder = ""
+    try:
+        subject = original.subject
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        to_copy = [original.sender.email] if original.sender else []
+        cc_copy: list[str] = []
+        if reply_all:
+            me = acc.from_address
+            to_copy = [e for e in {a.email for a in original.recipients} if e != me] or to_copy
+            cc_copy = [e for e in {a.email for a in original.cc} if e != me]
+        saved_to_sent, sent_folder = _save_copy_to_sent(
+            acc=acc,
+            smtp=smtp,
+            to=to_copy,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=cc_copy or None,
+            bcc=bcc,
+            signature=signature,
+        )
+    except Exception:
+        saved_to_sent = False
+    return {
+        "sent": True,
+        "message_id": mid,
+        "account": acc.id,
+        "saved_to_sent": saved_to_sent,
+        "sent_folder": sent_folder,
+    }
 
 
 @mcp.tool()
@@ -113,7 +204,7 @@ def forward_message(
     - `cc`: visible carbon copy
     - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
-    Returns `{"sent": true, "message_id": "..."}` on success.
+    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
     """
     acc = _account(account_id)
     with IMAPClient(acc) as imap:
@@ -124,7 +215,39 @@ def forward_message(
 
     smtp = SMTPClient(acc)
     mid = smtp.forward(original=original, to=to, body_text=body_text, cc=cc, bcc=bcc, signature=signature)
-    return {"sent": True, "message_id": mid, "account": acc.id}
+    saved_to_sent = False
+    sent_folder = ""
+    try:
+        full_body = (
+            body_text
+            + f"\n\n---------- Forwarded message ----------\n"
+            + f"From: {original.sender.email if original.sender else 'unknown'}\n"
+            + f"Date: {original.date.strftime('%Y-%m-%d %H:%M') if original.date else ''}\n"
+            + f"Subject: {original.subject}\n\n"
+            + original.body_text
+        ).strip()
+        subject = original.subject
+        if not subject.lower().startswith("fwd:") and not subject.lower().startswith("fw:"):
+            subject = f"Fwd: {subject}"
+        saved_to_sent, sent_folder = _save_copy_to_sent(
+            acc=acc,
+            smtp=smtp,
+            to=to,
+            subject=f"Fwd: {original.subject}",
+            body_text=full_body,
+            cc=cc,
+            bcc=bcc,
+            signature=signature,
+        )
+    except Exception:
+        saved_to_sent = False
+    return {
+        "sent": True,
+        "message_id": mid,
+        "account": acc.id,
+        "saved_to_sent": saved_to_sent,
+        "sent_folder": sent_folder,
+    }
 
 
 @mcp.tool()
