@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastmcp import FastMCP
 
 from mail_mcp.config import get_account, get_default_account
 from mail_mcp.core.imap_client import IMAPClient
+from mail_mcp.core.models import SearchCriteria
 from mail_mcp.core.smtp_client import SMTPClient
 
 mcp = FastMCP("mail-compose")
@@ -54,6 +57,76 @@ def _save_copy_to_sent(
     return True, sent_folder
 
 
+def _detect_bounce_for_message_id(*, acc, message_id: str) -> Optional[dict]:
+    """Look for a DSN/bounce in INBOX that references the given Message-ID."""
+    now_utc = datetime.now(timezone.utc)
+    since_dt = now_utc - timedelta(days=1)
+    needle_raw = (message_id or "").strip()
+    needle_compact = needle_raw.strip("<>")
+
+    with IMAPClient(acc) as imap:
+        uids = imap.search(
+            SearchCriteria(
+                folder="INBOX",
+                sender="MAILER-DAEMON",
+                since=since_dt,
+                limit=50,
+            )
+        )
+        if not uids:
+            return None
+        summaries = imap.fetch_summaries(uids, "INBOX")
+        summaries = sorted(summaries, key=lambda m: m.date or datetime.min, reverse=True)
+        for summary in summaries:
+            msg = imap.fetch_message(summary.uid, "INBOX")
+            if msg is None:
+                continue
+            haystack = "\n".join(
+                [
+                    msg.subject or "",
+                    msg.body_text or "",
+                    msg.in_reply_to or "",
+                    msg.message_id or "",
+                    "\n".join(msg.references or []),
+                ]
+            )
+            if needle_raw and needle_raw in haystack:
+                return {
+                    "uid": msg.uid,
+                    "subject": msg.subject,
+                    "date": msg.date.isoformat() if msg.date else "",
+                    "from": msg.sender.email if msg.sender else "",
+                    "folder": msg.folder,
+                }
+            if needle_compact and needle_compact in haystack:
+                return {
+                    "uid": msg.uid,
+                    "subject": msg.subject,
+                    "date": msg.date.isoformat() if msg.date else "",
+                    "from": msg.sender.email if msg.sender else "",
+                    "folder": msg.folder,
+                }
+    return None
+
+
+def _delivery_probe(
+    *,
+    acc,
+    message_id: str,
+    verify_bounce_window_seconds: int,
+) -> tuple[str, Optional[dict]]:
+    """Return (delivery_status, bounce_details)."""
+    if verify_bounce_window_seconds <= 0:
+        return "unknown", None
+
+    # Bounded wait window for asynchronous DSN generation on recipient side.
+    time.sleep(max(0, verify_bounce_window_seconds))
+    bounce = _detect_bounce_for_message_id(acc=acc, message_id=message_id)
+    if bounce:
+        return "bounced", bounce
+    return "delivered_hint", None
+
+
 @mcp.tool()
 def send_message(
     to: list[str],
@@ -64,6 +137,7 @@ def send_message(
     bcc: Optional[list[str]] = None,
     signature: str = "default",
     attachments: Optional[list[str]] = None,
+    verify_bounce_window_seconds: int = 0,
     account_id: Optional[str] = None,
 ) -> dict:
     """Send a new email message.
@@ -77,7 +151,14 @@ def send_message(
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
     - `attachments`: optional list of absolute file paths to attach
 
-    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
+    Returns:
+    - `smtp_accepted`: SMTP submission accepted by outbound server
+    - `saved_to_sent`: local sent-copy append result
+    - `delivery_status`: `"unknown"` | `"bounced"` | `"delivered_hint"`
+    - `bounce_details`: optional DSN metadata when detected
+
+    Backward compatibility:
+    - `sent` remains present and mirrors `smtp_accepted`
     """
     acc = _account(account_id)
     smtp = SMTPClient(acc)
@@ -108,12 +189,20 @@ def send_message(
         )
     except Exception:
         saved_to_sent = False
+    delivery_status, bounce_details = _delivery_probe(
+        acc=acc,
+        message_id=mid,
+        verify_bounce_window_seconds=verify_bounce_window_seconds,
+    )
     return {
+        "smtp_accepted": True,
         "sent": True,
         "message_id": mid,
         "account": acc.id,
         "saved_to_sent": saved_to_sent,
         "sent_folder": sent_folder,
+        "delivery_status": delivery_status,
+        "bounce_details": bounce_details,
     }
 
 
@@ -125,6 +214,7 @@ def reply_message(
     reply_all: bool = False,
     bcc: Optional[list[str]] = None,
     signature: str = "default",
+    verify_bounce_window_seconds: int = 0,
     folder: str = "INBOX",
     account_id: Optional[str] = None,
 ) -> dict:
@@ -134,7 +224,14 @@ def reply_message(
     Set `reply_all=True` to include all original recipients in CC.
     - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
-    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
+    Returns:
+    - `smtp_accepted`: SMTP submission accepted by outbound server
+    - `saved_to_sent`: local sent-copy append result
+    - `delivery_status`: `"unknown"` | `"bounced"` | `"delivered_hint"`
+    - `bounce_details`: optional DSN metadata when detected
+
+    Backward compatibility:
+    - `sent` remains present and mirrors `smtp_accepted`
     """
     acc = _account(account_id)
     with IMAPClient(acc) as imap:
@@ -177,12 +274,20 @@ def reply_message(
         )
     except Exception:
         saved_to_sent = False
+    delivery_status, bounce_details = _delivery_probe(
+        acc=acc,
+        message_id=mid,
+        verify_bounce_window_seconds=verify_bounce_window_seconds,
+    )
     return {
+        "smtp_accepted": True,
         "sent": True,
         "message_id": mid,
         "account": acc.id,
         "saved_to_sent": saved_to_sent,
         "sent_folder": sent_folder,
+        "delivery_status": delivery_status,
+        "bounce_details": bounce_details,
     }
 
 
@@ -194,6 +299,7 @@ def forward_message(
     cc: Optional[list[str]] = None,
     bcc: Optional[list[str]] = None,
     signature: str = "default",
+    verify_bounce_window_seconds: int = 0,
     folder: str = "INBOX",
     account_id: Optional[str] = None,
 ) -> dict:
@@ -204,7 +310,14 @@ def forward_message(
     - `cc`: visible carbon copy
     - `bcc`: blind carbon copy (envelope only)
     - `signature`: "default" → configured signature with logo | "" → none | "any text" → custom plain-text sig
-    Returns `{"sent": true, "message_id": "...", "saved_to_sent": bool}`.
+    Returns:
+    - `smtp_accepted`: SMTP submission accepted by outbound server
+    - `saved_to_sent`: local sent-copy append result
+    - `delivery_status`: `"unknown"` | `"bounced"` | `"delivered_hint"`
+    - `bounce_details`: optional DSN metadata when detected
+
+    Backward compatibility:
+    - `sent` remains present and mirrors `smtp_accepted`
     """
     acc = _account(account_id)
     with IMAPClient(acc) as imap:
@@ -241,12 +354,20 @@ def forward_message(
         )
     except Exception:
         saved_to_sent = False
+    delivery_status, bounce_details = _delivery_probe(
+        acc=acc,
+        message_id=mid,
+        verify_bounce_window_seconds=verify_bounce_window_seconds,
+    )
     return {
+        "smtp_accepted": True,
         "sent": True,
         "message_id": mid,
         "account": acc.id,
         "saved_to_sent": saved_to_sent,
         "sent_folder": sent_folder,
+        "delivery_status": delivery_status,
+        "bounce_details": bounce_details,
     }
 
 

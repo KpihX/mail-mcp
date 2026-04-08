@@ -1,5 +1,12 @@
 # CHANGELOG — mail-mcp
 
+## [0.2.3] — 2026-04-08
+
+- [x] Compose responses now expose explicit SMTP semantics: `smtp_accepted` + backward-compatible `sent`
+- [x] Added `delivery_status` (`unknown` | `bounced` | `delivered_hint`) and `bounce_details` to send/reply/forward responses
+- [x] Added optional `verify_bounce_window_seconds` probe to detect immediate DSN/bounce after submission
+- [x] Kept IMAP Sent append behavior (`saved_to_sent`, `sent_folder`) unchanged and explicit
+
 ## [0.2.2] — 2026-04-07
 
 - [x] Compose tools now persist a copy in IMAP `Sent` after SMTP send (`send_message`, `reply_message`, `forward_message`)
