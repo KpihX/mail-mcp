@@ -2,7 +2,7 @@
 
 from fastmcp import FastMCP
 
-from mail_mcp.config import get_config
+from mail_mcp.config import APP_VERSION, get_config
 
 mcp = FastMCP("mail-guide")
 
@@ -20,7 +20,11 @@ def mail_guide() -> str:
     )
 
     return f"""
-# mail-mcp v0.2.0 — Agent Guide
+# mail-mcp v{APP_VERSION} — Agent Guide
+
+## Transports (same tools, different host)
+- **stdio** (`mail-mcp serve`) — use on the machine where **local attachment paths** exist.
+- **HTTP** (`mail-mcp serve-http`, path `/mcp`) — homelab / remote; **cannot** read arbitrary files on your laptop.
 
 ## Accounts
 {account_list}
@@ -53,14 +57,22 @@ Client-side regex (applied after IMAP, on fetched results):
   `body_pattern` — regex on body text (expensive: fetches full messages)
 
 ## Composing Tools
-- `send_message` — send new email (cc, bcc, attachments, signature)
-- `reply_message` — reply by UID (bcc, signature, reply_all)
-- `forward_message` — forward by UID (cc, bcc, signature)
+- `send_message` — send new email (cc, bcc, attachments, signature, optional bounce probe)
+- `reply_message` — reply by UID (bcc, signature, reply_all, optional bounce probe)
+- `forward_message` — forward by UID (cc, bcc, signature, optional bounce probe)
 - `save_draft` — save draft to Drafts folder (bcc, attachments, signature)
+
+**SMTP vs delivery (all compose sends):**
+- `smtp_accepted` — outbound SMTP accepted the message (mirrored by legacy `sent`).
+- `saved_to_sent` / `sent_folder` — IMAP append of a copy to Sent when configured.
+- `delivery_status` — `unknown` (default) | `bounced` | `delivered_hint` (see below).
+- `bounce_details` — when a match is found: DSN / `MAILER-DAEMON` message in INBOX referencing the outbound `Message-ID`.
+
+**Optional probe:** set `verify_bounce_window_seconds` > 0 to wait that many seconds after send, then scan INBOX for an immediate DSN/bounce. Default `0` skips the wait (status often stays `unknown`). Use a short window only when you need automated bounce detection; pair with human checks for sensitive mail per your agent policy.
 
 Signature param: "default" → configured sig with logo | "" → none | "any text" → custom plain
 BCC: added to SMTP envelope only — never appears in message headers.
-Attachments: list of absolute local file paths.
+Attachments: list of absolute local file paths (stdio transport on the host that owns those paths).
 
 ## Management Tools
 - `list_folders` — all IMAP folders

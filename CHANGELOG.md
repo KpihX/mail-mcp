@@ -1,5 +1,11 @@
 # CHANGELOG — mail-mcp
 
+## [0.2.4] — 2026-04-09
+
+- [x] `APP_VERSION` and `/health` now resolve **`k-mail-mcp`** distribution metadata (fallback `mail-mcp`) — fixes stale **0.2.0** when only the PyPI name was installed
+- [x] `mail_guide()` uses live **`APP_VERSION`** and documents **stdio vs HTTP**, **`verify_bounce_window_seconds`**, **`delivery_status`**, **`bounce_details`**, **`smtp_accepted`**
+- [x] `__version__` re-exported from `mail_mcp` via `APP_VERSION`
+
 ## [0.2.3] — 2026-04-08
 
 - [x] Compose responses now expose explicit SMTP semantics: `smtp_accepted` + backward-compatible `sent`

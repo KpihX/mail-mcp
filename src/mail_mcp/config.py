@@ -37,11 +37,15 @@ _DOT_ENV = _PKG_DIR / ".env"
 # Package version
 # ---------------------------------------------------------------------------
 
-def _package_version(default: str = "0.2.0") -> str:
-    try:
-        return pkg_version("mail-mcp")
-    except PackageNotFoundError:
-        return default
+def _package_version(default: str = "0.0.0") -> str:
+    """Resolve installed distribution version (PyPI name is `k-mail-mcp`, not `mail-mcp`)."""
+    for dist_name in ("k-mail-mcp", "mail-mcp"):
+        try:
+            return pkg_version(dist_name)
+        except PackageNotFoundError:
+            continue
+    return default
+
 
 APP_VERSION: str = _package_version()
 

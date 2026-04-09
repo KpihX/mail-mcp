@@ -1,6 +1,6 @@
 # mail-mcp
 
-**Generic IMAP+SMTP MCP server for AI agents — v0.2.0**
+**Generic IMAP+SMTP MCP server for AI agents — v0.2.4**
 
 Connect any email account to any AI agent (Claude, Gemini, Codex, Copilot, Vibe…).
 Intent-first design: high-level tools matching real user workflows, backed by a clean IMAP/SMTP core
